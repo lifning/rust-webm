@@ -8,13 +8,53 @@ pub mod mux {
     use std::io::{Write, Seek};
 
     pub struct Writer<T>
-        where T: Write + Seek,
+        where T: Write,
     {
         dest: Box<T>,
         mkv_writer: ffi::mux::WriterMutPtr,
     }
 
-    unsafe impl<T: Send + Write + Seek> Send for Writer<T> {}
+    unsafe impl<T: Send + Write> Send for Writer<T> {}
+
+    impl<T> Writer<T>
+        where T: Write,
+    {
+        pub fn new_non_seekable(dest: T) -> Writer<T> {
+            use std::slice::from_raw_parts;
+            let mut w = Writer {
+                dest: Box::new(dest),
+                mkv_writer: 0 as ffi::mux::WriterMutPtr,
+            };
+
+            extern "C" fn write_fn<T>(dest: *mut c_void,
+                                      buf: *const c_void,
+                                      len: usize) -> bool
+                where T: Write,
+            {
+                let dest = unsafe { dest.cast::<T>().as_mut().unwrap() };
+                let buf = unsafe {
+                    from_raw_parts(buf as *const u8, len as usize)
+                };
+                dest.write(buf).is_ok()
+            }
+
+            w.mkv_writer = unsafe {
+                ffi::mux::new_writer(Some(write_fn::<T>),
+                                     None,
+                                     None,
+                                     None,
+                                     (&mut *w.dest) as *mut T as *mut _)
+            };
+            assert!(!w.mkv_writer.is_null());
+            w
+        }
+        pub fn unwrap(self) -> T {
+            unsafe {
+                ffi::mux::delete_writer(self.mkv_writer);
+            }
+            *self.dest
+        }
+    }
 
     impl<T> Writer<T>
         where T: Write + Seek,
@@ -63,12 +103,6 @@ pub mod mux {
             assert!(!w.mkv_writer.is_null());
             w
         }
-        pub fn unwrap(self) -> T {
-            unsafe {
-                ffi::mux::delete_writer(self.mkv_writer);
-            }
-            *self.dest
-        }
     }
 
     #[doc(hidden)]
@@ -76,7 +110,7 @@ pub mod mux {
         fn mkv_writer(&self) -> ffi::mux::WriterMutPtr;
     }
     impl<T> MkvWriter for Writer<T>
-        where T: Write + Seek,
+        where T: Write,
     {
         fn mkv_writer(&self) -> ffi::mux::WriterMutPtr {
             self.mkv_writer
@@ -170,6 +204,20 @@ pub mod mux {
         }
     }
 
+    #[derive(Eq, PartialEq, Clone, Copy, Debug)]
+    pub enum SegmentMode {
+        Live,
+        File,
+    }
+    impl SegmentMode {
+        fn get_id(&self) -> u32 {
+            match self {
+                SegmentMode::Live => ffi::mux::MODE_LIVE,
+                SegmentMode::File => ffi::mux::MODE_FILE,
+            }
+        }
+    }
+
     unsafe impl<W: Send> Send for Segment<W> {}
 
     pub struct Segment<W> {
@@ -217,6 +265,12 @@ pub mod mux {
                                                   id.unwrap_or(0), codec.get_id())
             };
             AudioTrack(self.ffi, at)
+        }
+
+        pub fn set_mode(&mut self, mode: SegmentMode) {
+            unsafe {
+                ffi::mux::segment_set_mode(self.ffi, mode.get_id());
+            }
         }
 
         pub fn try_finalize(self, duration: Option<u64>) -> Result<W, W> {

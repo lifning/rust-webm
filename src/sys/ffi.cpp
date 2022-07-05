@@ -26,6 +26,8 @@ extern "C" {
     SetPositionFun        set_position_         = nullptr;
     ElementStartNotifyFun element_start_notify_ = nullptr;
 
+    mkvmuxer::int64 measured_position_ = 0;
+
     mutable void* user_data = nullptr;
 
     FfiMkvWriter() = default;
@@ -33,18 +35,21 @@ extern "C" {
 
     mkvmuxer::int32 Write(const void* buf, uint32_t len) override final {
       assert(this->write_ != nullptr);
-
+      this->measured_position_ += len;
       return this->write_(this->user_data, buf, static_cast<size_t>(len)) ? 0 : 1;
     }
     mkvmuxer::int64 Position() const override final {
-      assert(this->get_position_ != nullptr);
-
-      return this->get_position_(this->user_data);
+      if (this->get_position_ != nullptr) {
+        return this->get_position_(this->user_data);
+      } else {
+        return this->measured_position_;
+      }
     }
     mkvmuxer::int32 Position(mkvmuxer::int64 pos) override final {
       if(this->set_position_ == nullptr) { return 1; }
 
       if(this->set_position_(this->user_data, pos)) {
+        this->measured_position_ = pos;
         return 0;
       } else {
         return 1;
@@ -65,7 +70,7 @@ extern "C" {
                               FfiMkvWriter::SetPositionFun set_position,
                               FfiMkvWriter::ElementStartNotifyFun element_start_notify,
                               void* user_data) {
-    if(write == nullptr || get_position == nullptr) {
+    if(write == nullptr) {
       return nullptr;
     }
 
@@ -130,6 +135,10 @@ extern "C" {
   const uint32_t VP8_CODEC_ID = 0;
   const uint32_t VP9_CODEC_ID = 1;
 
+  // mode
+  const uint32_t MODE_LIVE = 1;
+  const uint32_t MODE_FILE = 2;
+
   MuxVideoTrackPtr mux_segment_add_video_track(MuxSegmentPtr segment, const int32_t width,
                                                const int32_t height, const int32_t number,
                                                const uint32_t codec_id) {
@@ -189,5 +198,13 @@ extern "C" {
 
     return segment->AddFrame(frame, length, track->number(),
                              timestamp_ns, keyframe);
+  }
+
+  void mux_segment_set_mode(MuxSegmentPtr segment, uint32_t mode) {
+    switch(mode) {
+      case MODE_LIVE: segment->set_mode(mkvmuxer::Segment::Mode::kLive); break;
+      case MODE_FILE: segment->set_mode(mkvmuxer::Segment::Mode::kFile); break;
+      default: break;
+    }
   }
 }

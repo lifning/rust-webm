@@ -20,6 +20,9 @@ pub mod mux {
     pub const VP8_CODEC_ID: u32 = 0;
     pub const VP9_CODEC_ID: u32 = 1;
 
+    pub const MODE_LIVE: u32 = 1;
+    pub const MODE_FILE: u32 = 2;
+
     pub type Segment = c_void;
     pub type SegmentMutPtr = *mut Segment;
 
@@ -73,6 +76,8 @@ pub mod mux {
                                  track: TrackMutPtr,
                                  frame: *const u8, length: usize,
                                  timestamp_ns: u64, keyframe: bool) -> bool;
+        #[link_name = "mux_segment_set_mode"]
+        pub fn segment_set_mode(segment: SegmentMutPtr, mode: u32);
     }
 }
 
