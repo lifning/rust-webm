@@ -54,6 +54,9 @@ pub mod mux {
             }
             *self.dest
         }
+        pub fn writer_mut(&mut self) -> &mut T {
+            self.dest.as_mut()
+        }
     }
 
     impl<T> Writer<T>
@@ -285,6 +288,10 @@ pub mod mux {
             } else {
                 Err(self._writer)
             }
+        }
+
+        pub fn writer_mut(&mut self) -> &mut W {
+            &mut self._writer
         }
 
         /// After calling, all tracks are freed (ie you can't use them).
